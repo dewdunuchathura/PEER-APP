@@ -236,6 +236,9 @@ export default function Home() {
   const [zodiac, setZodiac] = useState('');
   const [instagram, setInstagram] = useState('');
 
+  // Saved profile from DB
+  const [userProfile, setUserProfile] = useState(null);
+
   // Event
   const [genderPref, setGenderPref] = useState('equal');
   const [liveEvent, setLiveEvent] = useState(null);
@@ -284,6 +287,22 @@ export default function Home() {
             const d = new Date(`${ev.date}T${ev.startTime || '18:00:00'}`);
             const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             setLiveEvent({ date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.capacity || 28, round: 2, totalRounds: ev.numRounds || 6 });
+          }
+        })
+        .catch(() => {});
+    }
+    if (screen === 'optional-profile' && user?.token) {
+      fetch('/api/users', { headers: { Authorization: `Bearer ${user.token}` } })
+        .then(r => r.json())
+        .then(data => {
+          if (data && !data.error) {
+            setUserProfile(data);
+            if (data.first_name) setDisplayName(`${data.first_name} ${data.last_name || ''}`.trim());
+            if (data.bio) setBio(data.bio);
+            if (data.interests) setInterests(Array.isArray(data.interests) ? data.interests : JSON.parse(data.interests || '[]'));
+            if (data.zodiac_sign) setZodiac(data.zodiac_sign);
+            if (data.instagram_handle) setInstagram(data.instagram_handle);
+            if (data.location_city) setLocation(data.location_city);
           }
         })
         .catch(() => {});
@@ -601,8 +620,21 @@ export default function Home() {
       case 'optional-profile': return (
         <div style={{ minHeight: '100vh', padding: '24px 20px 60px', background: C.bg, backgroundImage: BG }}>
           <div style={{ maxWidth: '380px', margin: '0 auto' }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 900, color: C.text, textAlign: 'center', marginBottom: '2px' }}>Complete Your Profile</h2>
-            <p style={{ fontSize: '14px', color: C.muted, textAlign: 'center', marginBottom: '4px', fontWeight: 600 }}>(Optional)</p>
+
+            {/* Profile Card */}
+            {userProfile && (
+              <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', marginBottom: '24px', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', textAlign: 'center' }}>
+                <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', margin: '0 auto 12px', color: '#fff', fontWeight: 900 }}>
+                  {(userProfile.first_name || '?')[0].toUpperCase()}
+                </div>
+                <p style={{ fontSize: '20px', fontWeight: 900, color: C.text }}>{userProfile.first_name} {userProfile.last_name || ''}</p>
+                <p style={{ fontSize: '13px', color: C.muted, marginTop: '2px' }}>📍 {userProfile.location_city || 'No location set'}</p>
+                <p style={{ fontSize: '13px', color: C.muted, marginTop: '2px' }}>📱 {localStorage.getItem('peard_phone') || ''}</p>
+                {userProfile.bio && <p style={{ fontSize: '13px', color: C.text, marginTop: '8px', fontStyle: 'italic' }}>"{userProfile.bio}"</p>}
+              </div>
+            )}
+
+            <h2 style={{ fontSize: '22px', fontWeight: 900, color: C.text, textAlign: 'center', marginBottom: '4px' }}>Edit Your Profile</h2>
             <p style={{ fontSize: '13px', color: C.muted, textAlign: 'center', marginBottom: '24px' }}>Add more details to get more matches</p>
 
             <div style={{ marginBottom: '16px' }}>
