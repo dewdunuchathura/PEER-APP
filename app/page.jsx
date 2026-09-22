@@ -659,6 +659,12 @@ export default function Home() {
               <OutlineBtn onClick={() => goTo('event-ready')}>Skip</OutlineBtn>
               <PrimaryBtn onClick={saveOptionalProfile} loading={loading}>Save &amp; Continue</PrimaryBtn>
             </div>
+
+            <button onClick={() => {
+              if (window.confirm('Are you sure you want to log out?')) logout();
+            }} style={{ width: '100%', marginTop: '16px', padding: '14px', borderRadius: '14px', border: '2px solid #fee2e2', background: '#fff5f5', color: '#ef4444', fontWeight: 700, fontSize: '15px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              🚪 Log Out
+            </button>
           </div>
         </div>
       );
