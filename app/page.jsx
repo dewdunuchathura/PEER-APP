@@ -236,7 +236,8 @@ export default function Home() {
 
   // Event
   const [genderPref, setGenderPref] = useState('equal');
-  const EVENT = { date: 'Saturday, Sept 21 • 8:00 PM', venue: 'Shoreditch House, Room B', attendees: 28, round: 2, totalRounds: 6 };
+  const [liveEvent, setLiveEvent] = useState(null);
+  const EVENT = liveEvent || { date: 'Loading...', venue: 'Loading...', attendees: 28, round: 2, totalRounds: 6 };
 
   // Timers
   const [eventTime, setEventTime] = useState(30 * 60);
@@ -252,6 +253,22 @@ export default function Home() {
     const userId = localStorage.getItem('peard_user_id');
     if (token && userId) { setUser({ token, userId }); setScreen('event-ready'); }
   }, []);
+
+  useEffect(() => {
+    if (screen === 'event-ready' && user?.token) {
+      fetch('/api/events', { headers: { Authorization: `Bearer ${user.token}` } })
+        .then(r => r.json())
+        .then(data => {
+          if (data.events && data.events.length > 0) {
+            const ev = data.events[0];
+            const d = new Date(`${ev.date}T${ev.startTime || '18:00:00'}`);
+            const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            setLiveEvent({ date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.capacity || 28, round: 2, totalRounds: ev.numRounds || 6 });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [screen, user]);
 
   useEffect(() => {
     clearInterval(timerRef.current);
