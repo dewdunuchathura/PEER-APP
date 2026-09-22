@@ -250,10 +250,28 @@ export default function Home() {
   const showMsg = (msg, type = 'info') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
   const goTo = (s) => { setScreen(s); setError(''); };
 
+  const logout = () => {
+    localStorage.removeItem('peard_token');
+    localStorage.removeItem('peard_user_id');
+    localStorage.removeItem('peard_phone');
+    setUser(null); setPhone(''); setOtpCode(''); setGender('');
+    setDisplayName(''); setBirthday(''); setLocation('');
+    goTo('phone');
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('peard_token');
     const userId = localStorage.getItem('peard_user_id');
-    if (token && userId) { setUser({ token, userId }); setScreen('event-ready'); }
+    const savedPhone = localStorage.getItem('peard_phone');
+    if (token && userId) {
+      // Verify token is still valid
+      fetch('/api/users', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => {
+          if (r.status === 401) { logout(); }
+          else { setUser({ token, userId }); if (savedPhone) setPhone(savedPhone); setScreen('event-ready'); }
+        })
+        .catch(() => { setUser({ token, userId }); setScreen('event-ready'); });
+    }
   }, []);
 
   useEffect(() => {
