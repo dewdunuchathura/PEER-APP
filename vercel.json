@@ -1,42 +1,15 @@
 {
-  "projectSettings": {
-    "framework": "nextjs",
-    "nodeVersion": "18.x"
-  },
+  "framework": "nextjs",
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "installCommand": "npm ci",
-  "devCommand": "next dev",
-  "env": {
-    "NEXT_PUBLIC_APP_NAME": "@peard",
-    "NEXT_PUBLIC_APP_URL": "https://peard.vercel.app"
-  },
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/api/$1"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=3600, must-revalidate"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-XSS-Protection",
-          "value": "1; mode=block"
-        }
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
       ]
     }
   ]
