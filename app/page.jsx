@@ -222,11 +222,13 @@ export default function Home() {
   // Profile
   const [displayName, setDisplayName] = useState('');
   const [birthday, setBirthday] = useState('');
+  const [gender, setGender] = useState('');
   const [location, setLocation] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [photos, setPhotos] = useState(Array(6).fill(null));
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [bio, setBio] = useState('');
   const [interests, setInterests] = useState([]);
@@ -314,8 +316,10 @@ export default function Home() {
         localStorage.setItem('peard_user_id', data.user_id);
         localStorage.setItem('peard_phone', phone);
         setUser({ token: data.access_token, userId: data.user_id });
+        const adminPhones = (process.env.NEXT_PUBLIC_ADMIN_PHONES || '').split(',').map(p => p.trim());
+        setIsAdmin(adminPhones.includes(phone));
         showMsg('✅ Phone verified!', 'success');
-        goTo('basic-profile');
+        goTo('gender-select');
       } else setError(data.error || 'Invalid code');
     } catch { setError('Network error.'); }
     setLoading(false);
@@ -348,14 +352,25 @@ export default function Home() {
 
   const saveBasicProfile = async () => {
     if (!displayName) return setError('Display name is required');
-    setLoading(true);
+    if (!birthday) return setError('Birthday is required');
+    if (!location) return setError('Location is required');
+    setLoading(true); setError('');
     try {
-      await fetch('/api/users', {
+      const res = await fetch('/api/users', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
-        body: JSON.stringify({ first_name: displayName.split(' ')[0], last_name: displayName.split(' ').slice(1).join(' '), location_city: location }),
+        body: JSON.stringify({
+          first_name: displayName.split(' ')[0],
+          last_name: displayName.split(' ').slice(1).join(' '),
+          location_city: location.split(',')[0]?.trim(),
+          location_country: location.split(',')[1]?.trim() || '',
+          gender,
+        }),
       });
-    } catch {}
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Failed to save profile'); setLoading(false); return; }
+      showMsg('Profile saved!', 'success');
+    } catch { setError('Network error. Please try again.'); setLoading(false); return; }
     goTo('optional-profile'); setLoading(false);
   };
 
@@ -367,6 +382,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({ bio, interests, height_cm: height ? parseInt(height) : undefined, zodiac_sign: zodiac, instagram_handle: instagram }),
       });
+      showMsg('Profile complete!', 'success');
     } catch {}
     goTo('event-ready'); setLoading(false);
   };
@@ -443,6 +459,35 @@ export default function Home() {
               Change Phone Number
             </button>
           </div>
+        </div>
+      );
+
+      // ── 2b. GENDER SELECT ───────────────────────────────────
+      case 'gender-select': return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '40px 24px', background: C.bg, backgroundImage: BG }}>
+          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+            <div style={{ fontSize: '52px', marginBottom: '16px' }}>👤</div>
+            <h2 style={{ fontSize: '28px', fontWeight: 900, color: C.text, marginBottom: '8px' }}>I am a...</h2>
+            <p style={{ color: C.muted, fontSize: '14px', lineHeight: 1.5 }}>This helps us match you with the right people at events</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '32px' }}>
+            {[
+              { value: 'male', icon: '♂️', label: 'Man', color: '#4A90D9' },
+              { value: 'female', icon: '♀️', label: 'Woman', color: C.pink },
+              { value: 'nonbinary', icon: '⚧️', label: 'Non-binary', color: '#9B59B6' },
+            ].map(opt => (
+              <button key={opt.value} onClick={() => setGender(opt.value)}
+                style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '18px 20px', borderRadius: '16px', border: `2px solid ${gender === opt.value ? opt.color : 'rgba(0,0,0,0.1)'}`, background: gender === opt.value ? `${opt.color}10` : '#fff', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.2s' }}>
+                <span style={{ fontSize: '28px', width: '40px', textAlign: 'center' }}>{opt.icon}</span>
+                <span style={{ fontSize: '17px', fontWeight: 700, color: gender === opt.value ? opt.color : C.text }}>{opt.label}</span>
+                {gender === opt.value && <span style={{ marginLeft: 'auto', color: opt.color, fontSize: '20px', fontWeight: 900 }}>✓</span>}
+              </button>
+            ))}
+          </div>
+          {error && <p style={{ color: '#ef4444', fontSize: '14px', marginBottom: '12px', textAlign: 'center', fontWeight: 600 }}>{error}</p>}
+          <PrimaryBtn onClick={() => { if (!gender) return setError('Please select your gender'); setError(''); goTo('basic-profile'); }}>
+            Continue →
+          </PrimaryBtn>
         </div>
       );
 
@@ -796,7 +841,7 @@ export default function Home() {
   };
 
   // ── LAYOUT ────────────────────────────────────────────────
-  const isAuthScreen = screen === 'phone' || screen === 'otp';
+  const isAuthScreen = screen === 'phone' || screen === 'otp' || screen === 'gender-select';
   const isSetupScreen = screen === 'basic-profile' || screen === 'optional-profile';
   const showHeader = !isAuthScreen;
   const showNav = !isAuthScreen && !isSetupScreen;
@@ -861,8 +906,8 @@ export default function Home() {
               <div style={{ display: 'flex', gap: '6px' }}>
                 {[
                   { icon: '🔔', action: () => showMsg('No new notifications', 'info') },
-                  { icon: '📤', action: () => showMsg('Link copied!', 'success') },
-                  { icon: '☰',  action: () => setShowDemoPanel(true) },
+                  { icon: '📤', action: () => { navigator.clipboard?.writeText(window.location.href); showMsg('Link copied!', 'success'); } },
+                  ...(isAdmin ? [{ icon: '☰', action: () => setShowDemoPanel(true) }] : []),
                 ].map((btn, i) => (
                   <button key={i} onClick={btn.action}
                     style={{ width: '34px', height: '34px', borderRadius: '50%', background: i === 1 ? C.text : '#fff', border: i !== 1 ? '1px solid rgba(0,0,0,0.1)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', cursor: 'pointer', color: i === 1 ? '#fff' : C.muted }}>
