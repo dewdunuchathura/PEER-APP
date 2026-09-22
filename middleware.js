@@ -35,7 +35,7 @@ export async function middleware(request) {
     const verified = await jwtVerify(token, JWT_SECRET);
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set('x-user-id', verified.payload.user_id);
-    
+
     return NextResponse.next({
       request: {
         headers: requestHeaders,
@@ -59,3 +59,35 @@ function extractTokenFromBearer(authHeader) {
 export const config = {
   matcher: ['/api/:path*'],
 };
+
+/**
+ * withAuth - Route wrapper that extracts user from x-user-id header
+ * (set by the middleware above after JWT verification)
+ */
+export function withAuth(handler) {
+  return async function(request, context) {
+    const userId = request.headers.get('x-user-id');
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    request.user = { userId };
+    return handler(request, context);
+  };
+}
+
+/**
+ * withErrorHandler - Route wrapper that catches unhandled errors
+ */
+export function withErrorHandler(handler) {
+  return async function(request, context) {
+    try {
+      return await handler(request, context);
+    } catch (error) {
+      console.error('Unhandled route error:', error.message, error.stack);
+      return NextResponse.json(
+        { error: 'Internal server error' },
+        { status: 500 }
+      );
+    }
+  };
+}

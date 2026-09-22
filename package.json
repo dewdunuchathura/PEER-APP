@@ -22,7 +22,7 @@
     "jose": "^4.15.4",
     "jsqr": "^1.4.0",
     "html5-qrcode": "^2.3.4",
-    "twilio": "^3.98.0"
+    "twilio": "^5.0.0"
   },
   "devDependencies": {
     "eslint": "8.54.0",
