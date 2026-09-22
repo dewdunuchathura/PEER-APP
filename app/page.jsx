@@ -267,11 +267,30 @@ export default function Home() {
     const userId = localStorage.getItem('peard_user_id');
     const savedPhone = localStorage.getItem('peard_phone');
     if (token && userId) {
-      // Verify token is still valid
       fetch('/api/users', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => {
-          if (r.status === 401) { logout(); }
-          else { setUser({ token, userId }); if (savedPhone) setPhone(savedPhone); setScreen('event-ready'); }
+          if (r.status === 401) { logout(); return; }
+          return r.json();
+        })
+        .then(data => {
+          if (!data) return;
+          // Restore user session
+          setUser({ token, userId });
+          if (savedPhone) setPhone(savedPhone);
+          // Restore admin status
+          const adminPhones = (process.env.NEXT_PUBLIC_ADMIN_PHONES || '').split(',').map(p => p.trim());
+          if (savedPhone) setIsAdmin(adminPhones.includes(savedPhone));
+          // Load profile data
+          setUserProfile(data);
+          if (data.first_name) setDisplayName(`${data.first_name} ${data.last_name || ''}`.trim());
+          if (data.bio) setBio(data.bio);
+          if (data.interests) setInterests(Array.isArray(data.interests) ? data.interests : JSON.parse(data.interests || '[]'));
+          if (data.zodiac_sign) setZodiac(data.zodiac_sign);
+          if (data.instagram_handle) setInstagram(data.instagram_handle);
+          if (data.location_city) setLocation(data.location_city);
+          if (data.gender) setGender(data.gender);
+          // Go directly to event screen — skip all setup screens
+          setScreen('event-ready');
         })
         .catch(() => { setUser({ token, userId }); setScreen('event-ready'); });
     }
@@ -956,7 +975,9 @@ export default function Home() {
                 <span style={{ fontSize: '22px' }}>🍐</span>
                 <div>
                   <p style={{ fontSize: '18px', fontWeight: 900, color: C.text, lineHeight: 1 }}>peard</p>
-                  <p style={{ fontSize: '10px', color: C.muted }}>📍 Speed Dating Event</p>
+                  <p style={{ fontSize: '10px', color: C.muted }}>
+                    {userProfile?.first_name ? `👋 Hey, ${userProfile.first_name}!` : '📍 Speed Dating Event'}
+                  </p>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
