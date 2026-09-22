@@ -223,6 +223,9 @@ export default function Home() {
   const [displayName, setDisplayName] = useState('');
   const [birthday, setBirthday] = useState('');
   const [location, setLocation] = useState('');
+  const [locationSuggestions, setLocationSuggestions] = useState([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [photos, setPhotos] = useState(Array(6).fill(null));
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [bio, setBio] = useState('');
@@ -299,6 +302,31 @@ export default function Home() {
       } else setError(data.error || 'Invalid code');
     } catch { setError('Network error.'); }
     setLoading(false);
+  };
+
+  const searchCity = async (query) => {
+    setLocation(query);
+    if (query.length < 2) { setLocationSuggestions([]); setShowLocationDropdown(false); return; }
+    setLocationLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&featuretype=city&addressdetails=1`);
+      const data = await res.json();
+      const cities = data.map(item => {
+        const a = item.address;
+        const city = a.city || a.town || a.village || a.county || item.display_name.split(',')[0];
+        const country = a.country || '';
+        return { label: `${city}, ${country}`, lat: item.lat, lon: item.lon };
+      }).filter((v, i, arr) => arr.findIndex(x => x.label === v.label) === i);
+      setLocationSuggestions(cities);
+      setShowLocationDropdown(cities.length > 0);
+    } catch { setLocationSuggestions([]); }
+    setLocationLoading(false);
+  };
+
+  const selectCity = (suggestion) => {
+    setLocation(suggestion.label);
+    setLocationSuggestions([]);
+    setShowLocationDropdown(false);
   };
 
   const saveBasicProfile = async () => {
@@ -437,10 +465,25 @@ export default function Home() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: C.text, marginBottom: '6px' }}>Location *</label>
-                <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="City, Country"
-                  style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '13px', color: C.text, background: '#fff', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                  onFocus={e => e.target.style.borderColor = C.pink}
-                  onBlur={e => e.target.style.borderColor = 'rgba(0,0,0,0.1)'} />
+                <div style={{ position: 'relative' }}>
+                  <input type="text" value={location} onChange={e => searchCity(e.target.value)} placeholder="Type your city..."
+                    style={{ width: '100%', padding: '11px 12px', borderRadius: '12px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '13px', color: C.text, background: '#fff', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                    onFocus={e => { e.target.style.borderColor = C.pink; if (locationSuggestions.length > 0) setShowLocationDropdown(true); }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(0,0,0,0.1)'; setTimeout(() => setShowLocationDropdown(false), 200); }} />
+                  {locationLoading && <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#999' }}>searching...</div>}
+                  {showLocationDropdown && locationSuggestions.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.15)', zIndex: 100, marginTop: '4px', overflow: 'hidden' }}>
+                      {locationSuggestions.map((s, i) => (
+                        <div key={i} onMouseDown={() => selectCity(s)}
+                          style={{ padding: '10px 14px', fontSize: '13px', color: C.text, cursor: 'pointer', borderBottom: i < locationSuggestions.length - 1 ? '1px solid rgba(0,0,0,0.06)' : 'none' }}
+                          onMouseEnter={e => e.target.style.background = '#fef0f2'}
+                          onMouseLeave={e => e.target.style.background = '#fff'}>
+                          📍 {s.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
