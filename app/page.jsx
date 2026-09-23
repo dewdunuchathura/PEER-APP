@@ -330,8 +330,9 @@ export default function Home() {
       const interval = setInterval(() => fetchRegisteredCount(eventId), 10000);
       return () => clearInterval(interval);
     }
-    if (screen === 'hunt' && user?.token && eventId) {
-      fetchMyMatch(eventId, currentRound);
+    if (screen === 'hunt' && user?.token) {
+      const evId = eventId || liveEvent?.id;
+      if (evId) { setEventId(evId); fetchMyMatch(evId, currentRound); }
     }
     if (screen === 'match-history' && user?.token) {
       fetchConversations();
@@ -963,28 +964,28 @@ export default function Home() {
             <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text }}>Your Match</h2>
           </div>
 
-          {currentMatch === null && eventId && (() => { setTimeout(() => fetchMyMatch(eventId, currentRound), 5000); return null; })()}
           {currentMatch ? (
             <>
               <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
                 <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '42px', margin: '0 auto 14px', color: '#fff', fontWeight: 900 }}>
-                  {currentMatch.partnerPhoto ? <img src={currentMatch.partnerPhoto} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : (currentMatch.partnerName?.[0] || '?')}
+                  {currentMatch.partnerPhoto
+                    ? <img src={currentMatch.partnerPhoto} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                    : (currentMatch.partnerName?.[0] || '?')}
                 </div>
                 <p style={{ fontSize: '22px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>{currentMatch.partnerName || 'Your Match'}</p>
                 {currentMatch.partnerBio && <p style={{ fontSize: '14px', color: C.muted, fontStyle: 'italic', marginBottom: '8px' }}>"{currentMatch.partnerBio}"</p>}
-                {currentMatch.partnerLocation && <p style={{ fontSize: '13px', color: C.muted }}>📍 {currentMatch.partnerLocation}</p>}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <button onClick={() => submitAction('pass')} style={{ padding: '16px', borderRadius: '16px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: '24px', cursor: 'pointer', fontWeight: 900 }}>✕ Pass</button>
-                <button onClick={() => { submitAction('like'); goTo('conversation'); }} style={{ padding: '16px', borderRadius: '16px', border: 'none', background: C.pink, color: '#fff', fontSize: '24px', cursor: 'pointer', fontWeight: 900 }}>❤️ Like</button>
+                <button onClick={() => submitAction('pass')} style={{ padding: '16px', borderRadius: '16px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: '22px', cursor: 'pointer', fontWeight: 900, fontFamily: 'inherit' }}>✕ Pass</button>
+                <button onClick={() => { submitAction('like'); goTo('conversation'); }} style={{ padding: '16px', borderRadius: '16px', border: 'none', background: C.pink, color: '#fff', fontSize: '22px', cursor: 'pointer', fontWeight: 900, fontFamily: 'inherit' }}>❤️ Like</button>
               </div>
             </>
           ) : (
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <div style={{ fontSize: '52px', marginBottom: '16px' }}>⏳</div>
-              <p style={{ fontWeight: 700, color: C.text, marginBottom: '8px' }}>Finding your match...</p>
-              <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>Auto-refreshing every 5 seconds</p>
-              <OutlineBtn onClick={() => eventId && fetchMyMatch(eventId, currentRound)}>Refresh Now</OutlineBtn>
+              <div style={{ fontSize: '52px', marginBottom: '16px' }}>🎉</div>
+              <p style={{ fontWeight: 800, fontSize: '20px', color: C.text, marginBottom: '8px' }}>All rounds complete!</p>
+              <p style={{ fontSize: '14px', color: C.muted, marginBottom: '28px' }}>Check your matches below</p>
+              <PrimaryBtn onClick={() => { fetchConversations(); fetchRealMatches(eventId); goTo('match-history'); }}>View My Matches →</PrimaryBtn>
             </div>
           )}
         </div>
