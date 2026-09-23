@@ -991,26 +991,43 @@ export default function Home() {
       // ── 7b. PRE-HUNT TIMER ──────────────────────────────────
       case 'pre-hunt': return (
         <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', textAlign: 'center' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: C.pink, color: '#fff', fontSize: '13px', fontWeight: 800, padding: '6px 18px', borderRadius: '999px', marginBottom: '32px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: C.pink, color: '#fff', fontSize: '13px', fontWeight: 800, padding: '6px 18px', borderRadius: '999px', marginBottom: '24px' }}>
             Round {currentRound} of {EVENT.totalRounds}
           </div>
 
-          {/* Pear icon animated */}
-          <div style={{ fontSize: '64px', marginBottom: '20px', animation: 'none' }}>🍐</div>
-          <h2 style={{ fontSize: '22px', fontWeight: 900, color: C.text, marginBottom: '8px' }}>Get Ready to Find Your Pear!</h2>
-          <p style={{ fontSize: '14px', color: C.muted, marginBottom: '40px' }}>Your match will be revealed in...</p>
+          {/* Partner preview — blurred avatar */}
+          {currentMatch ? (
+            <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '90px', height: '90px', borderRadius: '50%', overflow: 'hidden', border: `3px solid ${C.pink}`, boxShadow: '0 4px 20px rgba(239,108,130,0.3)', filter: 'blur(6px)', transform: 'scale(1.05)' }}>
+                {currentMatch.partnerPhoto
+                  ? <img src={currentMatch.partnerPhoto} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <div style={{ width: '100%', height: '100%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '36px', color: '#fff', fontWeight: 900 }}>{currentMatch.partnerName?.[0]?.toUpperCase() || '?'}</div>
+                }
+              </div>
+              <p style={{ fontSize: '16px', fontWeight: 900, color: C.text }}>
+                Find <span style={{ color: C.pink }}>{currentMatch.partnerName?.split(' ')[0] || 'your match'}</span> in the room!
+              </p>
+              {currentMatch.partnerLocation && (
+                <p style={{ fontSize: '12px', color: C.muted }}>📍 {currentMatch.partnerLocation}</p>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: '52px', marginBottom: '20px' }}>🍐</div>
+          )}
+
+          <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>Photo reveals when timer ends...</p>
 
           {/* Big countdown */}
-          <div style={{ width: '160px', height: '160px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 8px 40px rgba(239,108,130,0.4)`, marginBottom: '32px' }}>
-            <span style={{ fontSize: '72px', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{preHuntTime}</span>
+          <div style={{ width: '140px', height: '140px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 8px 40px rgba(239,108,130,0.4)`, marginBottom: '24px' }}>
+            <span style={{ fontSize: '64px', fontWeight: 900, color: '#fff', lineHeight: 1 }}>{preHuntTime}</span>
           </div>
 
           {/* Progress bar */}
-          <div style={{ width: '200px', height: '6px', background: '#f0f0f0', borderRadius: '999px', overflow: 'hidden', marginBottom: '40px' }}>
+          <div style={{ width: '200px', height: '6px', background: '#f0f0f0', borderRadius: '999px', overflow: 'hidden', marginBottom: '20px' }}>
             <div style={{ height: '100%', width: `${((15 - preHuntTime) / 15) * 100}%`, background: C.pink, borderRadius: '999px', transition: 'width 1s linear' }} />
           </div>
 
-          <p style={{ fontSize: '13px', color: C.muted }}>💡 Tip: Look for someone who catches your eye!</p>
+          <p style={{ fontSize: '13px', color: C.muted }}>💡 Start looking around the room!</p>
         </div>
       );
 
