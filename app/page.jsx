@@ -312,10 +312,15 @@ export default function Home() {
         .then(data => {
           if (data.events && data.events.length > 0) {
             const ev = data.events[0];
-            const d = new Date(`${ev.date}T${ev.startTime || '18:00:00'}`);
-            const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            setLiveEvent({ id: ev.id, date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.capacity || 28, round: 2, totalRounds: ev.numRounds || 6 });
+            let dateStr = 'Date TBA';
+            try {
+              const dateOnly = new Date(ev.date).toISOString().split('T')[0];
+              const d = new Date(`${dateOnly}T${ev.startTime ? ev.startTime.substring(0,5) : '18:00'}:00`);
+              dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            } catch {}
+            setLiveEvent({ id: ev.id, date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.registered || ev.capacity || 0, round: 2, totalRounds: ev.numRounds || 6 });
             setEventId(ev.id);
+            setRegisteredCount(ev.registered || 0);
           }
         })
         .catch(() => {});
