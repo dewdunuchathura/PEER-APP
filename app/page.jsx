@@ -239,10 +239,19 @@ export default function Home() {
   // Saved profile from DB
   const [userProfile, setUserProfile] = useState(null);
 
-  // Event
+  // Event & matching
   const [genderPref, setGenderPref] = useState('equal');
   const [liveEvent, setLiveEvent] = useState(null);
-  const EVENT = liveEvent || { date: 'Loading...', venue: 'Loading...', attendees: 28, round: 2, totalRounds: 6 };
+  const [eventId, setEventId] = useState(null);
+  const [currentRound, setCurrentRound] = useState(1);
+  const [currentMatch, setCurrentMatch] = useState(null);
+  const [realMatches, setRealMatches] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [activeConv, setActiveConv] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [registeredCount, setRegisteredCount] = useState(0);
+  const EVENT = liveEvent || { date: 'Loading...', venue: 'Loading...', attendees: registeredCount, round: currentRound, totalRounds: 6 };
 
   // Timers
   const [eventTime, setEventTime] = useState(30 * 60);
@@ -305,10 +314,23 @@ export default function Home() {
             const ev = data.events[0];
             const d = new Date(`${ev.date}T${ev.startTime || '18:00:00'}`);
             const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-            setLiveEvent({ date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.capacity || 28, round: 2, totalRounds: ev.numRounds || 6 });
+            setLiveEvent({ id: ev.id, date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.capacity || 28, round: 2, totalRounds: ev.numRounds || 6 });
+            setEventId(ev.id);
           }
         })
         .catch(() => {});
+    }
+    if (screen === 'waiting-lobby' && user?.token && eventId) {
+      fetchRegisteredCount(eventId);
+      const interval = setInterval(() => fetchRegisteredCount(eventId), 10000);
+      return () => clearInterval(interval);
+    }
+    if (screen === 'hunt' && user?.token && eventId) {
+      fetchMyMatch(eventId, currentRound);
+    }
+    if (screen === 'match-history' && user?.token) {
+      fetchConversations();
+      if (eventId) fetchRealMatches(eventId);
     }
     if (screen === 'optional-profile' && user?.token) {
       fetch('/api/users', { headers: { Authorization: `Bearer ${user.token}` } })
@@ -441,6 +463,117 @@ export default function Home() {
       showMsg('Profile complete!', 'success');
     } catch {}
     goTo('event-ready'); setLoading(false);
+  };
+
+  // ── REAL API FUNCTIONS ────────────────────────────────────
+
+  const fetchRegisteredCount = async (evId) => {
+    if (!evId) return;
+    try {
+      const res = await fetch(`/api/events`, { headers: { Authorization: `Bearer ${user?.token}` } });
+      const data = await res.json();
+      if (data.events) {
+        const ev = data.events.find(e => e.id === evId);
+        if (ev) setRegisteredCount(ev.registered || 0);
+      }
+    } catch {}
+  };
+
+  const joinEvent = async (evId) => {
+    try {
+      await fetch(`/api/events/${evId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify({ gender: gender || 'other', genderBalancePreference: 'equal' }),
+      });
+      setEventId(evId);
+    } catch {}
+  };
+
+  const fetchMyMatch = async (evId, round) => {
+    try {
+      const res = await fetch(`/api/events/${evId}/rounds?round=${round}`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.match) setCurrentMatch(data.match);
+      else setCurrentMatch(null);
+    } catch {}
+  };
+
+  const submitAction = async (action) => {
+    if (!currentMatch?.id) return;
+    try {
+      const res = await fetch(`/api/matches/${currentMatch.id}/action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (data.isMutual) showMsg('🎉 It\'s a match!', 'success');
+      const nextRound = currentRound + 1;
+      setCurrentRound(nextRound);
+      if (eventId) fetchMyMatch(eventId, nextRound);
+      goTo('hunt');
+    } catch {}
+  };
+
+  const fetchRealMatches = async (evId) => {
+    if (!evId) return;
+    try {
+      const res = await fetch(`/api/matches?eventId=${evId}`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.matches) setRealMatches(data.matches);
+    } catch {}
+  };
+
+  const fetchConversations = async () => {
+    try {
+      const res = await fetch('/api/conversations', {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.conversations) setConversations(data.conversations);
+    } catch {}
+  };
+
+  const fetchMessages = async (convId) => {
+    try {
+      const res = await fetch(`/api/conversations/${convId}/messages`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.messages) setMessages(data.messages);
+    } catch {}
+  };
+
+  const sendMessage = async () => {
+    if (!chatInput.trim() || !activeConv) return;
+    const content = chatInput.trim();
+    setChatInput('');
+    try {
+      await fetch(`/api/conversations/${activeConv.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify({ content }),
+      });
+      fetchMessages(activeConv.id);
+    } catch {}
+  };
+
+  const startRounds = async () => {
+    if (!eventId) return showMsg('No event joined', 'error');
+    try {
+      const res = await fetch(`/api/events/${eventId}/rounds`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.success) { showMsg(`${data.message}`, 'success'); setCurrentRound(1); fetchMyMatch(eventId, 1); }
+      else showMsg(data.error || 'Failed', 'error');
+    } catch {}
   };
 
   const handlePhotoUpload = (index, file) => {
@@ -725,7 +858,7 @@ export default function Home() {
         <div style={{ padding: '28px 20px' }}>
           <h2 style={{ fontSize: '30px', fontWeight: 900, color: C.text, textAlign: 'center', marginBottom: '8px' }}>Event Ready!</h2>
           <p style={{ color: C.muted, textAlign: 'center', fontSize: '14px', marginBottom: '28px', lineHeight: 1.5 }}>
-            You're all set. Now scan the QR code at the venue entrance to check in.
+            You're all set. Tap below to enter the event!
           </p>
           <Card style={{ padding: 0, overflow: 'hidden', marginBottom: '28px' }}>
             {[
@@ -742,8 +875,13 @@ export default function Home() {
               </div>
             ))}
           </Card>
-          <PrimaryBtn onClick={() => { showMsg('Opening camera...', 'info'); setTimeout(() => goTo('waiting-lobby'), 800); }}>
-            🔲 Scan QR Code to Enter Event
+          <PrimaryBtn loading={loading} onClick={async () => {
+            setLoading(true);
+            if (liveEvent?.id) await joinEvent(liveEvent.id);
+            setLoading(false);
+            goTo('waiting-lobby');
+          }}>
+            🍐 Enter Event
           </PrimaryBtn>
         </div>
       );
@@ -761,27 +899,9 @@ export default function Home() {
           </Card>
 
           <Card>
-            <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>Attendees Checked In</p>
-            <p style={{ fontSize: '44px', fontWeight: 900, color: C.text }}>{EVENT.attendees}</p>
-          </Card>
-
-          <Card>
-            <p style={{ fontSize: '14px', fontWeight: 800, color: C.text, marginBottom: '12px' }}>Gender Distribution</p>
-            {[
-              { id: 'equal', icon: '⚡', label: 'Equal Match', sub: '14 Men + 14 Women' },
-              { id: 'more-men', icon: '♂', label: 'More Men', sub: '16 Men + 12 Women (Rotating)' },
-              { id: 'more-women', icon: '♀', label: 'More Women', sub: '12 Men + 16 Women (Rotating)' },
-            ].map(opt => (
-              <button key={opt.id} onClick={() => setGenderPref(opt.id)}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', border: `2px solid ${genderPref === opt.id ? C.pink : 'rgba(0,0,0,0.08)'}`, background: genderPref === opt.id ? '#fef2f4' : '#fff', cursor: 'pointer', marginBottom: '8px', textAlign: 'left', fontFamily: 'inherit', transition: 'all 0.15s' }}>
-                <span style={{ fontSize: '20px', width: '24px', textAlign: 'center' }}>{opt.icon}</span>
-                <div>
-                  <p style={{ fontSize: '13px', fontWeight: 800, color: C.text }}>{opt.label}</p>
-                  <p style={{ fontSize: '11px', color: C.muted }}>{opt.sub}</p>
-                </div>
-              </button>
-            ))}
-            <p style={{ fontSize: '12px', color: C.muted, textAlign: 'center', marginTop: '4px' }}>Choose one of the above and you'll be placed accordingly</p>
+            <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>Registered Attendees</p>
+            <p style={{ fontSize: '44px', fontWeight: 900, color: C.text }}>{registeredCount || '...'}</p>
+            <p style={{ fontSize: '12px', color: C.muted, marginTop: '4px' }}>Updates every 10 seconds</p>
           </Card>
 
           <PrimaryBtn onClick={() => goTo('event-timer')}>Continue →</PrimaryBtn>
@@ -830,16 +950,37 @@ export default function Home() {
 
       // ── 8. HUNT ─────────────────────────────────────────────
       case 'hunt': return (
-        <div style={{ minHeight: '65vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
-          <IconBubble emoji="❗" />
-          <h2 style={{ fontSize: '28px', fontWeight: 900, color: C.text, textAlign: 'center', marginBottom: '8px' }}>Finding Your Next Match...</h2>
-          <p style={{ color: C.muted, textAlign: 'center', fontWeight: 700, marginBottom: '8px', fontSize: '15px' }}>Future Matches Are Secret!</p>
-          <p style={{ fontSize: '13px', color: C.muted, textAlign: 'center', marginBottom: '40px', maxWidth: '260px', lineHeight: 1.5 }}>
-            ☝️ Tip: Your next match will be revealed when you're both ready!
-          </p>
-          <div style={{ width: '100%', maxWidth: '340px' }}>
-            <PrimaryBtn onClick={() => goTo('conversation')}>Start Next Hunt Phase →</PrimaryBtn>
+        <div style={{ padding: '24px 20px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: C.pink, color: '#fff', fontSize: '13px', fontWeight: 800, padding: '6px 18px', borderRadius: '999px', marginBottom: '12px' }}>
+              Round {currentRound} of {EVENT.totalRounds}
+            </div>
+            <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text }}>Your Match</h2>
           </div>
+
+          {currentMatch ? (
+            <>
+              <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
+                <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '42px', margin: '0 auto 14px', color: '#fff', fontWeight: 900 }}>
+                  {currentMatch.partnerPhoto ? <img src={currentMatch.partnerPhoto} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} /> : (currentMatch.partnerName?.[0] || '?')}
+                </div>
+                <p style={{ fontSize: '22px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>{currentMatch.partnerName || 'Your Match'}</p>
+                {currentMatch.partnerBio && <p style={{ fontSize: '14px', color: C.muted, fontStyle: 'italic', marginBottom: '8px' }}>"{currentMatch.partnerBio}"</p>}
+                {currentMatch.partnerLocation && <p style={{ fontSize: '13px', color: C.muted }}>📍 {currentMatch.partnerLocation}</p>}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <button onClick={() => submitAction('pass')} style={{ padding: '16px', borderRadius: '16px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: '24px', cursor: 'pointer', fontWeight: 900 }}>✕ Pass</button>
+                <button onClick={() => { submitAction('like'); goTo('conversation'); }} style={{ padding: '16px', borderRadius: '16px', border: 'none', background: C.pink, color: '#fff', fontSize: '24px', cursor: 'pointer', fontWeight: 900 }}>❤️ Like</button>
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <div style={{ fontSize: '52px', marginBottom: '16px' }}>⏳</div>
+              <p style={{ fontWeight: 700, color: C.text, marginBottom: '8px' }}>Waiting for rounds to start...</p>
+              <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>The organiser will start the event shortly</p>
+              <OutlineBtn onClick={() => eventId && fetchMyMatch(eventId, currentRound)}>Refresh</OutlineBtn>
+            </div>
+          )}
         </div>
       );
 
@@ -885,29 +1026,99 @@ export default function Home() {
       // ── 12. MATCH HISTORY ───────────────────────────────────
       case 'match-history': return (
         <div style={{ padding: '24px 20px' }}>
-          <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>Match History 🍐</h2>
-          <p style={{ color: C.muted, fontSize: '14px', marginBottom: '20px' }}>Your speed dating results</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { round: 1, status: 'mutual', note: 'You both liked each other!' },
-              { round: 2, status: 'pending', note: 'Waiting for their response...' },
-              { round: 3, status: 'passed', note: 'You passed' },
-            ].map(m => (
-              <div key={m.round} style={{ background: '#fff', borderRadius: '16px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
-                <div style={{ width: '52px', height: '52px', borderRadius: '14px', background: '#fef2f4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>👤</div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontWeight: 800, color: C.text, fontSize: '15px' }}>Round {m.round} Match</p>
-                  <p style={{ fontSize: '12px', color: C.muted }}>{m.note}</p>
+          {activeConv ? (
+            // ── CHAT VIEW ──
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                <button onClick={() => setActiveConv(null)} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer' }}>←</button>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 900, fontSize: '16px' }}>
+                  {activeConv.otherName?.[0] || '?'}
                 </div>
-                {m.status === 'mutual' && <span style={{ background: '#f0fdf4', color: '#16a34a', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>❤️ Match!</span>}
-                {m.status === 'pending' && <span style={{ background: '#fefce8', color: '#a16207', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>⏳ Pending</span>}
-                {m.status === 'passed' && <span style={{ background: '#f9fafb', color: '#6b7280', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>✕ Passed</span>}
+                <p style={{ fontWeight: 800, fontSize: '16px', color: C.text }}>{activeConv.otherName}</p>
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: '20px' }}>
-            <OutlineBtn onClick={() => goTo('event-ready')}>Back to Events</OutlineBtn>
-          </div>
+              <div style={{ height: '55vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px', padding: '4px 0' }}>
+                {messages.length === 0 && <p style={{ textAlign: 'center', color: C.muted, fontSize: '14px', marginTop: '40px' }}>No messages yet. Say hi! 👋</p>}
+                {messages.map(msg => (
+                  <div key={msg.id} style={{ display: 'flex', justifyContent: msg.isOwn ? 'flex-end' : 'flex-start' }}>
+                    <div style={{ maxWidth: '75%', padding: '10px 14px', borderRadius: msg.isOwn ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: msg.isOwn ? C.pink : '#fff', color: msg.isOwn ? '#fff' : C.text, fontSize: '14px', fontWeight: 500, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                  placeholder="Type a message..." style={{ flex: 1, padding: '12px 16px', borderRadius: '14px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '14px', outline: 'none', fontFamily: 'inherit' }}
+                  onFocus={e => e.target.style.borderColor = C.pink}
+                  onBlur={e => e.target.style.borderColor = 'rgba(0,0,0,0.1)'} />
+                <button onClick={sendMessage} style={{ padding: '12px 18px', borderRadius: '14px', background: C.pink, color: '#fff', border: 'none', fontSize: '18px', cursor: 'pointer' }}>➤</button>
+              </div>
+            </>
+          ) : (
+            // ── MATCHES LIST ──
+            <>
+              <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>Match History 🍐</h2>
+              <p style={{ color: C.muted, fontSize: '14px', marginBottom: '20px' }}>Your speed dating results</p>
+
+              {/* Mutual matches / conversations */}
+              {conversations.length > 0 && (
+                <>
+                  <p style={{ fontSize: '12px', fontWeight: 800, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '10px' }}>💬 Your Matches</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
+                    {conversations.map(conv => (
+                      <div key={conv.id} onClick={() => { setActiveConv(conv); fetchMessages(conv.id); }}
+                        style={{ background: '#fff', borderRadius: '16px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', cursor: 'pointer' }}>
+                        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', color: '#fff', fontWeight: 900, flexShrink: 0 }}>
+                          {conv.otherName?.[0] || '?'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontWeight: 800, color: C.text, fontSize: '15px' }}>{conv.otherName}</p>
+                          <p style={{ fontSize: '12px', color: C.muted }}>{conv.lastMessage || 'Tap to say hi!'}</p>
+                        </div>
+                        <span style={{ background: '#f0fdf4', color: '#16a34a', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>❤️ Match</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* All rounds */}
+              {realMatches.length > 0 && (
+                <>
+                  <p style={{ fontSize: '12px', fontWeight: 800, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '10px' }}>All Rounds</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {realMatches.map(m => (
+                      <div key={m.id} style={{ background: '#fff', borderRadius: '16px', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: '14px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+                        <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: '#fef2f4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0, fontWeight: 900, color: C.pink }}>
+                          {m.partnerName?.[0] || '?'}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontWeight: 800, color: C.text, fontSize: '15px' }}>{m.partnerName || 'Round ' + m.roundNumber}</p>
+                          <p style={{ fontSize: '12px', color: C.muted }}>Round {m.roundNumber}</p>
+                        </div>
+                        {m.isMutual && <span style={{ background: '#f0fdf4', color: '#16a34a', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>❤️ Match!</span>}
+                        {!m.isMutual && m.userAction === 'like' && <span style={{ background: '#fefce8', color: '#a16207', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>⏳ Pending</span>}
+                        {m.userAction === 'pass' && <span style={{ background: '#f9fafb', color: '#6b7280', fontSize: '12px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>✕ Passed</span>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {realMatches.length === 0 && conversations.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                  <div style={{ fontSize: '52px', marginBottom: '12px' }}>🍐</div>
+                  <p style={{ fontWeight: 700, color: C.text, marginBottom: '4px' }}>No matches yet</p>
+                  <p style={{ fontSize: '13px', color: C.muted }}>Join an event to start meeting people!</p>
+                </div>
+              )}
+
+              <div style={{ marginTop: '20px' }}>
+                <OutlineBtn onClick={() => goTo('event-ready')}>Back to Events</OutlineBtn>
+              </div>
+            </>
+          )}
         </div>
       );
 
@@ -934,6 +1145,20 @@ export default function Home() {
     { section: 'PRE-EVENT',   items: [['5. Event Details','event-ready']] },
     { section: 'EVENT FLOW',  items: [['6. Waiting Lobby','waiting-lobby'],['7. Event Timer (30m)','event-timer'],['8. Hunt (45s)','hunt'],['9. Conversation (2m)','conversation'],['11. Event Summary','event-summary'],['12. Match History','match-history']] },
   ];
+
+  const AdminPanel = () => (
+    <div style={{ marginTop: '12px', borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '12px' }}>
+      <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px' }}>Admin Actions</p>
+      <button onClick={() => { startRounds(); setShowDemoPanel(false); }}
+        style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: C.pink, color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', marginBottom: '6px' }}>
+        🚀 Start Rounds (Pair All Users)
+      </button>
+      <button onClick={() => { if (eventId) fetchMyMatch(eventId, currentRound); setShowDemoPanel(false); }}
+        style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: '#fff', color: C.text, border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit' }}>
+        🔄 Refresh My Match
+      </button>
+    </div>
+  );
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, backgroundImage: BG, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -962,6 +1187,7 @@ export default function Home() {
                 ))}
               </div>
             ))}
+            <AdminPanel />
           </div>
         </div>
       )}
