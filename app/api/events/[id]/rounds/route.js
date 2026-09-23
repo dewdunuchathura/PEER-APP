@@ -13,24 +13,26 @@ async function postHandler(request, { params }) {
   const { id: eventId } = params;
 
   try {
-    // Get registered men and women
-    const menResult = await sql`
-      SELECT er.user_id FROM event_registrations er
-      JOIN users u ON er.user_id = u.id
-      WHERE er.event_id = ${eventId} AND (er.gender = 'male' OR u.gender = 'male')
-    `;
-    const womenResult = await sql`
-      SELECT er.user_id FROM event_registrations er
-      JOIN users u ON er.user_id = u.id
-      WHERE er.event_id = ${eventId} AND (er.gender = 'female' OR u.gender = 'female')
+    // Get ALL registered users (pair by registration order if gender missing)
+    const allResult = await sql`
+      SELECT er.user_id, er.gender FROM event_registrations er
+      WHERE er.event_id = ${eventId}
+      ORDER BY er.created_at ASC
     `;
 
-    const men = menResult.rows.map(r => r.user_id);
-    const women = womenResult.rows.map(r => r.user_id);
+    let men = allResult.rows.filter(r => r.gender === 'male').map(r => r.user_id);
+    let women = allResult.rows.filter(r => r.gender === 'female').map(r => r.user_id);
+
+    // Fallback: if no gender data, split by registration order
+    if (men.length === 0 || women.length === 0) {
+      const all = allResult.rows.map(r => r.user_id);
+      men = all.filter((_, i) => i % 2 === 0);
+      women = all.filter((_, i) => i % 2 !== 0);
+    }
 
     if (men.length === 0 || women.length === 0) {
       return NextResponse.json(
-        { error: 'Need at least one man and one woman registered' },
+        { error: 'Need at least 2 registered users' },
         { status: 400 }
       );
     }
