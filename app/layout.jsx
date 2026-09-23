@@ -24,31 +24,23 @@ export default function RootLayout({ children }) {
         
         {/* Tailwind CSS */}
         <script src="https://cdn.tailwindcss.com"></script>
-        <script>
-          {`tailwind.config = {
+        <script dangerouslySetInnerHTML={{ __html: `tailwind.config = {
             theme: {
               extend: {
-                fontFamily: {
-                  sans: ['Plus Jakarta Sans', 'sans-serif'],
-                },
+                fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'] },
                 colors: {
-                  'app-bg': '#f8f7f5',
-                  'app-card': '#ffffff',
-                  'app-pink': '#ef6c82',
-                  'app-pink-hover': '#d95369',
-                  'app-yellow': '#fef0b3',
-                  'app-yellow-dark': '#d4a017',
-                  'app-text': '#1d1d1f',
-                  'app-muted': '#6e6e73',
+                  'app-bg': '#f8f7f5', 'app-card': '#ffffff',
+                  'app-pink': '#ef6c82', 'app-pink-hover': '#d95369',
+                  'app-yellow': '#fef0b3', 'app-yellow-dark': '#d4a017',
+                  'app-text': '#1d1d1f', 'app-muted': '#6e6e73',
                 },
                 boxShadow: {
-                  'soft': '0 10px 30px rgba(0, 0, 0, 0.05)',
-                  'glow': '0 4px 20px rgba(239, 108, 130, 0.25)',
+                  'soft': '0 10px 30px rgba(0,0,0,0.05)',
+                  'glow': '0 4px 20px rgba(239,108,130,0.25)',
                 }
               }
             }
-          }`}
-        </script>
+          }` }} />
         
         {/* Google Fonts */}
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
