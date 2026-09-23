@@ -92,8 +92,12 @@ async function getHandler(request, { params }) {
     const result = await sql`
       SELECT
         m.*,
-        u1.first_name as user1_name, u1.profile_picture_url as user1_photo, u1.bio as user1_bio,
-        u2.first_name as user2_name, u2.profile_picture_url as user2_photo, u2.bio as user2_bio
+        u1.first_name as user1_name, u1.last_name as user1_lastname,
+        u1.profile_picture_url as user1_photo, u1.bio as user1_bio,
+        u1.location_city as user1_city, u1.location_country as user1_country,
+        u2.first_name as user2_name, u2.last_name as user2_lastname,
+        u2.profile_picture_url as user2_photo, u2.bio as user2_bio,
+        u2.location_city as user2_city, u2.location_country as user2_country
       FROM matches m
       JOIN users u1 ON m.user1_id = u1.id
       JOIN users u2 ON m.user2_id = u2.id
@@ -109,15 +113,20 @@ async function getHandler(request, { params }) {
     const m = result.rows[0];
     const isUser1 = m.user1_id === userId;
 
+    const partnerCity = isUser1 ? m.user2_city : m.user1_city;
+    const partnerCountry = isUser1 ? m.user2_country : m.user1_country;
+    const partnerLocation = [partnerCity, partnerCountry].filter(Boolean).join(', ');
+
     return NextResponse.json({
       success: true,
       match: {
         id: m.id,
         roundNumber: m.round_number,
         partnerId: isUser1 ? m.user2_id : m.user1_id,
-        partnerName: isUser1 ? m.user2_name : m.user1_name,
+        partnerName: isUser1 ? `${m.user2_name || ''} ${m.user2_lastname || ''}`.trim() : `${m.user1_name || ''} ${m.user1_lastname || ''}`.trim(),
         partnerPhoto: isUser1 ? m.user2_photo : m.user1_photo,
         partnerBio: isUser1 ? m.user2_bio : m.user1_bio,
+        partnerLocation,
         myAction: isUser1 ? m.user1_action : m.user2_action,
       }
     });

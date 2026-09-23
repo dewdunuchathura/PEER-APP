@@ -966,18 +966,46 @@ export default function Home() {
 
           {currentMatch ? (
             <>
-              <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
-                <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '42px', margin: '0 auto 14px', color: '#fff', fontWeight: 900 }}>
+              {/* Partner Card */}
+              <div style={{ background: '#fff', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.10)', marginBottom: '20px' }}>
+                {/* Photo */}
+                <div style={{ width: '100%', height: '260px', background: `linear-gradient(135deg, ${C.pink}33, ${C.pinkD}22)`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
                   {currentMatch.partnerPhoto
-                    ? <img src={currentMatch.partnerPhoto} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
-                    : (currentMatch.partnerName?.[0] || '?')}
+                    ? <img src={currentMatch.partnerPhoto} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <div style={{ width: '110px', height: '110px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', color: '#fff', fontWeight: 900 }}>
+                        {currentMatch.partnerName?.[0]?.toUpperCase() || '?'}
+                      </div>
+                  }
+                  <div style={{ position: 'absolute', top: '12px', right: '12px', background: C.pink, color: '#fff', fontSize: '12px', fontWeight: 800, padding: '4px 12px', borderRadius: '999px' }}>
+                    Round {currentRound}
+                  </div>
                 </div>
-                <p style={{ fontSize: '22px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>{currentMatch.partnerName || 'Your Match'}</p>
-                {currentMatch.partnerBio && <p style={{ fontSize: '14px', color: C.muted, fontStyle: 'italic', marginBottom: '8px' }}>"{currentMatch.partnerBio}"</p>}
+                {/* Info */}
+                <div style={{ padding: '18px 20px' }}>
+                  <p style={{ fontSize: '24px', fontWeight: 900, color: C.text, marginBottom: '4px' }}>{currentMatch.partnerName || 'Your Match'}</p>
+                  {currentMatch.partnerLocation && (
+                    <p style={{ fontSize: '14px', color: C.muted, marginBottom: '6px' }}>📍 {currentMatch.partnerLocation}</p>
+                  )}
+                  {currentMatch.partnerBio && (
+                    <p style={{ fontSize: '13px', color: C.text, fontStyle: 'italic', background: '#fef2f4', padding: '10px 12px', borderRadius: '10px' }}>"{currentMatch.partnerBio}"</p>
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <button onClick={() => submitAction('pass')} style={{ padding: '16px', borderRadius: '16px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', fontSize: '22px', cursor: 'pointer', fontWeight: 900, fontFamily: 'inherit' }}>✕ Pass</button>
-                <button onClick={() => { submitAction('like'); goTo('conversation'); }} style={{ padding: '16px', borderRadius: '16px', border: 'none', background: C.pink, color: '#fff', fontSize: '22px', cursor: 'pointer', fontWeight: 900, fontFamily: 'inherit' }}>❤️ Like</button>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <button onClick={() => submitAction('pass')}
+                  style={{ padding: '16px 8px', borderRadius: '16px', border: '2px solid #fee2e2', background: '#fff5f5', color: '#ef4444', fontSize: '13px', cursor: 'pointer', fontWeight: 800, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '22px' }}>✕</span>Pass
+                </button>
+                <button onClick={() => { const nextRound = currentRound + 1; setCurrentRound(nextRound); if (eventId) fetchMyMatch(eventId, nextRound); }}
+                  style={{ padding: '16px 8px', borderRadius: '16px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', color: C.muted, fontSize: '13px', cursor: 'pointer', fontWeight: 800, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '22px' }}>⏭</span>Skip
+                </button>
+                <button onClick={() => { submitAction('like'); goTo('conversation'); }}
+                  style={{ padding: '16px 8px', borderRadius: '16px', border: 'none', background: C.pink, color: '#fff', fontSize: '13px', cursor: 'pointer', fontWeight: 800, fontFamily: 'inherit', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontSize: '22px' }}>❤️</span>Like
+                </button>
               </div>
             </>
           ) : (
