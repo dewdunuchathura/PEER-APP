@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 import { getUserById, updateUser } from '@/lib/db';
 import { withAuth, withErrorHandler } from '@/middleware';
 import { logger } from '@/lib/logger';
-import { 
-  validateEmail, 
-  validateName, 
+import {
+  validateEmail,
+  validateName,
   validateBio,
   validateInterests,
   validateHeight,
   validateZodiac,
   validateInstagram,
+  validateDOB,
   sanitize
 } from '@/lib/validators';
 
@@ -74,8 +75,22 @@ async function putHandler(request) {
       instagram_handle,
       location_city,
       location_state,
-      location_country
+      location_country,
+      birth_date,
     } = body;
+
+    // Validate date of birth — must be 18+
+    if (birth_date) {
+      const dobResult = validateDOB(birth_date);
+      if (!dobResult.valid) {
+        const msg = dobResult.reason === 'minor'
+          ? 'You must be 18 or older to use this app'
+          : dobResult.reason === 'future_date'
+            ? 'Date of birth cannot be in the future'
+            : 'Invalid date of birth';
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
+    }
 
     // Validate inputs
     if (first_name && !validateName(first_name)) {
@@ -145,7 +160,8 @@ async function putHandler(request) {
       instagram_handle: instagram_handle ? sanitize(instagram_handle) : undefined,
       location_city: location_city ? sanitize(location_city) : undefined,
       location_state: location_state ? sanitize(location_state) : undefined,
-      location_country: location_country ? sanitize(location_country) : undefined
+      location_country: location_country ? sanitize(location_country) : undefined,
+      birth_date: birth_date || undefined,
     };
 
     const updatedUser = await updateUser(userId, updateData);

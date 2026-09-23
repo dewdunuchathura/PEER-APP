@@ -37,8 +37,8 @@ async function postHandler(request, { params }) {
       );
     }
 
-    // Get event num_rounds
-    const eventResult = await sql`SELECT num_rounds FROM events WHERE id = ${eventId}`;
+    // Get event num_rounds and round duration
+    const eventResult = await sql`SELECT num_rounds, round_duration_seconds FROM events WHERE id = ${eventId}`;
     const numRounds = Math.min(eventResult.rows[0]?.num_rounds || 6, men.length, women.length, 6);
 
     // Delete any existing match records for this event
@@ -59,8 +59,17 @@ async function postHandler(request, { params }) {
     }
 
     // Set event current_round to 1 and status to ongoing
+    const firstRoundEndsAt = new Date(
+      Date.now() + (eventResult.rows[0]?.round_duration_seconds || 120) * 1000
+    );
     await sql`
-      UPDATE events SET status = 'ongoing', updated_at = NOW() WHERE id = ${eventId}
+      UPDATE events SET
+        status = 'ongoing',
+        current_round = 1,
+        round_started_at = NOW(),
+        round_ends_at = ${firstRoundEndsAt.toISOString()},
+        updated_at = NOW()
+      WHERE id = ${eventId}
     `;
 
     logger.info('Rounds created', { eventId, rounds: numRounds, pairs: created });

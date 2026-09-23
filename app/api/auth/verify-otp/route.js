@@ -56,8 +56,8 @@ async function postHandler(request) {
 
     logger.debug('Inputs validated', logContext);
 
-    // Special handling for demo mode
-    const isDemoMode = otpCode === '000000';
+    // Demo bypass: only enabled when ALLOW_DEMO_OTP=true in env (never set in production)
+    const isDemoMode = process.env.ALLOW_DEMO_OTP === 'true' && otpCode === '000000';
 
     if (isDemoMode) {
       logger.info('Demo mode OTP detected', logContext);
