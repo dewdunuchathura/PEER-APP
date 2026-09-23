@@ -320,7 +320,7 @@ export default function Home() {
         })
         .catch(() => {});
     }
-    if (screen === 'waiting-lobby' && user?.token && eventId) {
+    if ((screen === 'waiting-lobby' || screen === 'event-timer') && user?.token && eventId) {
       fetchRegisteredCount(eventId);
       const interval = setInterval(() => fetchRegisteredCount(eventId), 10000);
       return () => clearInterval(interval);
@@ -926,7 +926,7 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <div>
                 <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>Attendees Checked In</p>
-                <p style={{ fontSize: '44px', fontWeight: 900, color: C.text }}>{EVENT.attendees}</p>
+                <p style={{ fontSize: '44px', fontWeight: 900, color: C.text }}>{registeredCount || '...'}</p>
               </div>
               <div style={{ marginLeft: 'auto', width: '12px', height: '12px', borderRadius: '50%', background: '#ef4444', animation: 'pulse 1.5s infinite' }} />
             </div>
