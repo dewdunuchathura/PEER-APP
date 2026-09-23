@@ -335,7 +335,13 @@ export default function Home() {
     }
     if ((screen === 'hunt' || screen === 'pre-hunt') && user?.token) {
       const evId = eventId || liveEvent?.id;
-      if (evId) { setEventId(evId); fetchMyMatch(evId, currentRound); }
+      if (evId) {
+        setEventId(evId);
+        fetchMyMatch(evId, currentRound);
+        // Poll every 3s in case partner hasn't joined yet when we arrived
+        const matchPoll = setInterval(() => fetchMyMatch(evId, currentRound), 3000);
+        return () => clearInterval(matchPoll);
+      }
     }
     if (screen === 'conversation' && user?.token && chatMatch) {
       // Try to find a mutual conversation with this partner
@@ -517,6 +523,13 @@ export default function Home() {
         body: JSON.stringify({ gender: gender || 'other', genderBalancePreference: 'equal' }),
       });
       setEventId(evId);
+      // Auto-create rounds so no admin needed — silently ignore if < 2 users yet
+      await fetch(`/api/events/${evId}/rounds`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      setCurrentRound(1);
+      await fetchMyMatch(evId, 1);
     } catch {}
   };
 
@@ -995,7 +1008,7 @@ export default function Home() {
             Round {currentRound} of {EVENT.totalRounds}
           </div>
 
-          {/* Partner preview — blurred avatar */}
+          {/* Partner preview — blurred avatar or waiting */}
           {currentMatch ? (
             <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
               <div style={{ width: '90px', height: '90px', borderRadius: '50%', overflow: 'hidden', border: `3px solid ${C.pink}`, boxShadow: '0 4px 20px rgba(239,108,130,0.3)', filter: 'blur(6px)', transform: 'scale(1.05)' }}>
@@ -1010,12 +1023,15 @@ export default function Home() {
               {currentMatch.partnerLocation && (
                 <p style={{ fontSize: '12px', color: C.muted }}>📍 {currentMatch.partnerLocation}</p>
               )}
+              <p style={{ fontSize: '13px', color: C.muted }}>Photo reveals when timer ends...</p>
             </div>
           ) : (
-            <div style={{ fontSize: '52px', marginBottom: '20px' }}>🍐</div>
+            <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '90px', height: '90px', borderRadius: '50%', background: '#f0f0f0', border: `3px dashed ${C.pink}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px' }}>⏳</div>
+              <p style={{ fontSize: '15px', fontWeight: 800, color: C.text }}>Finding your match...</p>
+              <p style={{ fontSize: '13px', color: C.muted }}>Waiting for your partner to join</p>
+            </div>
           )}
-
-          <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>Photo reveals when timer ends...</p>
 
           {/* Big countdown */}
           <div style={{ width: '140px', height: '140px', borderRadius: '50%', background: `linear-gradient(135deg, ${C.pink}, ${C.pinkD})`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 8px 40px rgba(239,108,130,0.4)`, marginBottom: '24px' }}>
