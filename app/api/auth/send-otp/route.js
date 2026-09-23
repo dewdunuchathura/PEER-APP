@@ -32,6 +32,34 @@ async function postHandler(request) {
       );
     }
 
+    // ── Rate limiting: max 5 OTP sends per phone per hour ──────
+    try {
+      const rlResult = await sql`
+        INSERT INTO otp_rate_limit (phone_number, send_count, window_start)
+        VALUES (${phoneNumber}, 1, NOW())
+        ON CONFLICT (phone_number) DO UPDATE SET
+          send_count = CASE
+            WHEN otp_rate_limit.window_start < NOW() - INTERVAL '1 hour' THEN 1
+            ELSE otp_rate_limit.send_count + 1
+          END,
+          window_start = CASE
+            WHEN otp_rate_limit.window_start < NOW() - INTERVAL '1 hour' THEN NOW()
+            ELSE otp_rate_limit.window_start
+          END
+        RETURNING send_count
+      `;
+      if (rlResult.rows[0]?.send_count > 5) {
+        logger.warn('OTP rate limit exceeded', { ...logContext, phone: phoneNumber.substring(0, 5) + '***' });
+        return NextResponse.json(
+          { error: 'Too many OTP requests. Please wait before trying again.' },
+          { status: 429 }
+        );
+      }
+    } catch (rlError) {
+      // If rate limit table doesn't exist yet, log and continue
+      logger.warn('Rate limit check skipped', { ...logContext, error: rlError.message });
+    }
+
     // Validate phone number
     if (!phoneNumber) {
       logger.warn('Phone number missing from request', logContext);
@@ -170,8 +198,8 @@ async function postHandler(request) {
       serviceSid: smsResult.messageSid || null
     };
 
-    // Only return OTP in demo mode for testing
-    if (smsResult.mode === 'demo') {
+    // Only return OTP in demo mode AND non-production environment
+    if (smsResult.mode === 'demo' && process.env.NODE_ENV !== 'production') {
       response.demo_otp = otpCode;
       response.demo_note = 'For testing only - use this code to verify';
     }

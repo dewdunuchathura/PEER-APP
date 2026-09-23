@@ -48,6 +48,15 @@ async function postHandler(request, { params }) {
     }
 
     const event = eventResult.rows[0];
+
+    // Block joining a completed event
+    if (event.status === 'completed') {
+      return NextResponse.json(
+        { error: 'This event has already ended' },
+        { status: 400 }
+      );
+    }
+
     if (event.registered_count >= event.max_participants) {
       return NextResponse.json(
         { error: 'Event is full' },

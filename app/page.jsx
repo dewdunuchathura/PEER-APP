@@ -244,6 +244,10 @@ export default function Home() {
   const [liveEvent, setLiveEvent] = useState(null);
   const [eventId, setEventId] = useState(null);
   const [currentRound, setCurrentRound] = useState(1);
+  // Server-authoritative round state (polled from /api/events/[id]/status)
+  const [serverRound, setServerRound] = useState(null);
+  const [serverEventStatus, setServerEventStatus] = useState(null);
+  const [genderCounts, setGenderCounts] = useState({ men: 0, women: 0 });
   const [currentMatch, setCurrentMatch] = useState(null);
   const [realMatches, setRealMatches] = useState([]);
   const [conversations, setConversations] = useState([]);
@@ -254,12 +258,20 @@ export default function Home() {
   const [preHuntTime, setPreHuntTime] = useState(15);
   const [chatMatch, setChatMatch] = useState(null);
   const [chatConvId, setChatConvId] = useState(null);
-  const EVENT = liveEvent || { date: 'Loading...', venue: 'Loading...', attendees: registeredCount, round: currentRound, totalRounds: 6 };
+  // Photos: each slot is { preview: string, file: File|null } | null
+  const [photoFiles, setPhotoFiles] = useState(Array(6).fill(null));
+
+  // Admin panel state (top-level to satisfy React hooks rules)
+  const [adminTab, setAdminTab] = useState('event');
+  const [newEvent, setNewEvent] = useState({ title: '', date: '', startTime: '18:00', locationName: '', locationAddress: '', maxParticipants: 28, numRounds: 6, roundDuration: 120 });
+  const [adminEvents, setAdminEvents] = useState([]);
+  const [attendees, setAttendees] = useState(null);
+  const activeRound = serverRound || currentRound;
+  const EVENT = liveEvent || { date: 'Loading...', venue: 'Loading...', attendees: registeredCount, round: activeRound, totalRounds: 6 };
 
   // Timers
   const [eventTime, setEventTime] = useState(30 * 60);
-  const [roundTime, setRoundTime] = useState(45);
-  const [nextMatchTime, setNextMatchTime] = useState(2 * 60 + 14);
+  const [roundTime, setRoundTime] = useState(120);
   const timerRef = useRef(null);
 
   const showMsg = (msg, type = 'info') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
@@ -301,6 +313,17 @@ export default function Home() {
           if (data.instagram_handle) setInstagram(data.instagram_handle);
           if (data.location_city) setLocation(data.location_city);
           if (data.gender) setGender(data.gender);
+          // Restore saved photos from DB
+          fetch('/api/users/photos', { headers: { Authorization: `Bearer ${token}` } })
+            .then(r => r.json())
+            .then(pd => {
+              if (pd.photos && pd.photos.length > 0) {
+                const n = Array(6).fill(null);
+                pd.photos.forEach((p, i) => { if (i < 6) n[i] = p.url; });
+                setPhotos(n);
+              }
+            })
+            .catch(() => {});
           // Go directly to event screen — skip all setup screens
           setScreen('event-ready');
         })
@@ -321,26 +344,42 @@ export default function Home() {
               const d = new Date(`${dateOnly}T${ev.startTime ? ev.startTime.substring(0,5) : '18:00'}:00`);
               dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) + ' • ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             } catch {}
-            setLiveEvent({ id: ev.id, date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.registered || ev.capacity || 0, round: 2, totalRounds: ev.numRounds || 6 });
+            setLiveEvent({ id: ev.id, date: dateStr, venue: ev.location?.name || ev.location?.address || 'Venue TBA', attendees: ev.registered || ev.capacity || 0, round: 1, totalRounds: ev.numRounds || 6 });
             setEventId(ev.id);
             setRegisteredCount(ev.registered || 0);
+            if (ev.roundDuration) setRoundTime(ev.roundDuration);
+            // Pre-load match history and conversations on return to events screen
+            fetchRealMatches(ev.id);
+            fetchConversations();
+            fetchEventStatus(ev.id);
           }
         })
         .catch(() => {});
     }
     if ((screen === 'waiting-lobby' || screen === 'event-timer') && user?.token && eventId) {
       fetchRegisteredCount(eventId);
-      const interval = setInterval(() => fetchRegisteredCount(eventId), 10000);
+      fetchEventStatus(eventId);
+      const interval = setInterval(() => {
+        fetchRegisteredCount(eventId);
+        fetchEventStatus(eventId);
+      }, 10000);
       return () => clearInterval(interval);
     }
     if ((screen === 'hunt' || screen === 'pre-hunt') && user?.token) {
       const evId = eventId || liveEvent?.id;
       if (evId) {
         setEventId(evId);
-        fetchMyMatch(evId, currentRound);
-        // Poll every 3s in case partner hasn't joined yet when we arrived
-        const matchPoll = setInterval(() => fetchMyMatch(evId, currentRound), 3000);
-        return () => clearInterval(matchPoll);
+        fetchMyMatch(evId, activeRound || 1);
+        // Poll match every 3s (partner may not have joined yet)
+        const matchPoll = setInterval(() => fetchMyMatch(evId, activeRound || 1), 3000);
+        // Poll event status every 5s to sync round with server
+        const statusPoll = setInterval(async () => {
+          const status = await fetchEventStatus(evId);
+          if (status && status.currentRound && status.currentRound !== activeRound) {
+            setCurrentRound(status.currentRound);
+          }
+        }, 5000);
+        return () => { clearInterval(matchPoll); clearInterval(statusPoll); };
       }
     }
     if (screen === 'conversation' && user?.token && chatMatch) {
@@ -358,6 +397,12 @@ export default function Home() {
     if (screen === 'match-history' && user?.token) {
       fetchConversations();
       if (eventId) fetchRealMatches(eventId);
+    }
+    if (screen === 'admin-panel' && user?.token) {
+      fetch('/api/events', { headers: { Authorization: `Bearer ${user.token}` } })
+        .then(r => r.json())
+        .then(data => { if (data.events) setAdminEvents(data.events); })
+        .catch(() => {});
     }
     if (screen === 'optional-profile' && user?.token) {
       fetch('/api/users', { headers: { Authorization: `Bearer ${user.token}` } })
@@ -382,7 +427,6 @@ export default function Home() {
     if (screen === 'waiting-lobby' || screen === 'event-timer') {
       timerRef.current = setInterval(() => {
         setEventTime(t => Math.max(0, t - 1));
-        setNextMatchTime(t => Math.max(0, t - 1));
       }, 1000);
     }
     if (screen === 'pre-hunt') {
@@ -444,14 +488,9 @@ export default function Home() {
     if (query.length < 2) { setLocationSuggestions([]); setShowLocationDropdown(false); return; }
     setLocationLoading(true);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&featuretype=city&addressdetails=1`);
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      const cities = data.map(item => {
-        const a = item.address;
-        const city = a.city || a.town || a.village || a.county || item.display_name.split(',')[0];
-        const country = a.country || '';
-        return { label: `${city}, ${country}`, lat: item.lat, lon: item.lon };
-      }).filter((v, i, arr) => arr.findIndex(x => x.label === v.label) === i);
+      const cities = data.results || [];
       setLocationSuggestions(cities);
       setShowLocationDropdown(cities.length > 0);
     } catch { setLocationSuggestions([]); }
@@ -467,6 +506,13 @@ export default function Home() {
   const saveBasicProfile = async () => {
     if (!displayName) return setError('Display name is required');
     if (!birthday) return setError('Birthday is required');
+    // Client-side age validation (18+)
+    const dob = new Date(birthday);
+    const today = new Date();
+    if (dob > today) return setError('Date of birth cannot be in the future');
+    const age = today.getFullYear() - dob.getFullYear()
+      - (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+    if (age < 18) return setError('You must be 18 or older to use this app');
     if (!location) return setError('Location is required');
     setLoading(true); setError('');
     try {
@@ -479,6 +525,7 @@ export default function Home() {
           location_city: location.split(',')[0]?.trim(),
           location_country: location.split(',')[1]?.trim() || '',
           gender,
+          birth_date: birthday,
         }),
       });
       const data = await res.json();
@@ -517,20 +564,32 @@ export default function Home() {
 
   const joinEvent = async (evId) => {
     try {
-      await fetch(`/api/events/${evId}/join`, {
+      const joinRes = await fetch(`/api/events/${evId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({ gender: gender || 'other', genderBalancePreference: 'equal' }),
       });
+      const joinData = await joinRes.json();
+      if (!joinRes.ok) {
+        if (joinData.error === 'This event has already ended') {
+          showMsg('This event has ended', 'error');
+          goTo('match-history');
+          return false;
+        }
+        if (joinData.error !== 'Already registered for this event') {
+          showMsg(joinData.error || 'Failed to join event', 'error');
+          return false;
+        }
+      }
       setEventId(evId);
-      // Auto-create rounds so no admin needed — silently ignore if < 2 users yet
-      await fetch(`/api/events/${evId}/rounds`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
-      });
-      setCurrentRound(1);
-      await fetchMyMatch(evId, 1);
-    } catch {}
+      // Fetch server round to join at the correct round
+      const status = await fetchEventStatus(evId);
+      const roundToJoin = status?.currentRound || 1;
+      setCurrentRound(roundToJoin);
+      setServerRound(roundToJoin);
+      await fetchMyMatch(evId, roundToJoin);
+      return true;
+    } catch { return false; }
   };
 
   const fetchMyMatch = async (evId, round) => {
@@ -557,13 +616,13 @@ export default function Home() {
       if (action === 'like') {
         setChatMatch(matchSnapshot);
         setMessages([]);
-        if (data.isMutual) {
-          showMsg('🎉 It\'s a match!', 'success');
-        }
+        if (data.isMutual) showMsg('It\'s a match!', 'success');
         goTo('conversation');
       } else {
-        const nextRound = currentRound + 1;
+        // Pass: advance to next round
+        const nextRound = activeRound + 1;
         setCurrentRound(nextRound);
+        setServerRound(nextRound);
         if (eventId) fetchMyMatch(eventId, nextRound);
         goTo('pre-hunt');
       }
@@ -624,16 +683,88 @@ export default function Home() {
         headers: { Authorization: `Bearer ${user?.token}` },
       });
       const data = await res.json();
-      if (data.success) { showMsg(`${data.message}`, 'success'); setCurrentRound(1); fetchMyMatch(eventId, 1); }
-      else showMsg(data.error || 'Failed', 'error');
+      if (data.success) {
+        showMsg(`${data.message}`, 'success');
+        setCurrentRound(1); setServerRound(1);
+        fetchMyMatch(eventId, 1);
+        fetchEventStatus(eventId);
+      } else showMsg(data.error || 'Failed', 'error');
     } catch {}
   };
 
   const handlePhotoUpload = (index, file) => {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = e => { const n = [...photos]; n[index] = e.target.result; setPhotos(n); };
+    reader.onload = e => {
+      const n = [...photos]; n[index] = e.target.result; setPhotos(n);
+      const f = [...photoFiles]; f[index] = file; setPhotoFiles(f);
+    };
     reader.readAsDataURL(file);
+  };
+
+  const savePhotos = async () => {
+    const toUpload = photoFiles.filter(Boolean);
+    if (toUpload.length === 0) { setShowPhotoModal(false); return; }
+    setLoading(true);
+    let uploaded = 0;
+    for (const file of toUpload) {
+      try {
+        const fd = new FormData();
+        fd.append('photo', file);
+        const res = await fetch('/api/users/photos', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${user?.token}` },
+          body: fd,
+        });
+        if (res.ok) uploaded++;
+      } catch {}
+    }
+    setLoading(false);
+    if (uploaded > 0) showMsg(`${uploaded} photo${uploaded > 1 ? 's' : ''} saved!`, 'success');
+    setShowPhotoModal(false);
+  };
+
+  const fetchEventStatus = async (evId) => {
+    if (!evId) return null;
+    try {
+      const res = await fetch(`/api/events/${evId}/status`);
+      const data = await res.json();
+      if (data.success) {
+        setServerRound(data.currentRound || 0);
+        setServerEventStatus(data.status);
+        setGenderCounts({ men: data.menCount || 0, women: data.womenCount || 0 });
+        if (data.numRounds) {
+          setLiveEvent(prev => prev ? { ...prev, totalRounds: data.numRounds } : prev);
+        }
+        if (data.roundDurationSeconds) setRoundTime(data.roundDurationSeconds);
+        return data;
+      }
+    } catch {}
+    return null;
+  };
+
+  const advanceRound = async () => {
+    if (!eventId) return showMsg('No event joined', 'error');
+    try {
+      const res = await fetch(`/api/events/${eventId}/advance-round`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.completed) {
+          showMsg('Event completed!', 'success');
+          goTo('event-summary');
+        } else {
+          setServerRound(data.currentRound);
+          setCurrentRound(data.currentRound);
+          showMsg(`Round ${data.currentRound} started!`, 'success');
+          fetchMyMatch(eventId, data.currentRound);
+        }
+      } else {
+        showMsg(data.error || 'Failed to advance round', 'error');
+      }
+    } catch { showMsg('Network error', 'error'); }
   };
 
   const toggleInterest = (item) => {
@@ -814,7 +945,7 @@ export default function Home() {
                   ))}
                 </div>
                 <p style={{ fontSize: '12px', color: C.muted, marginBottom: '16px' }}>💡 Tip: First photo will be your profile picture!</p>
-                <PrimaryBtn onClick={() => setShowPhotoModal(false)}>Save Photos &amp; Return</PrimaryBtn>
+                <PrimaryBtn onClick={savePhotos} loading={loading}>Save Photos &amp; Return</PrimaryBtn>
               </div>
             </div>
           )}
@@ -930,9 +1061,19 @@ export default function Home() {
           </Card>
           <PrimaryBtn loading={loading} onClick={async () => {
             setLoading(true);
-            if (liveEvent?.id) await joinEvent(liveEvent.id);
-            setLoading(false);
-            goTo('waiting-lobby');
+            const evId = liveEvent?.id;
+            if (evId) {
+              const ok = await joinEvent(evId);
+              setLoading(false);
+              if (ok === false) return; // joinEvent already navigated away
+              // If rounds are ongoing, go to event-timer; else waiting lobby
+              const status = await fetchEventStatus(evId);
+              if (status?.status === 'ongoing') goTo('event-timer');
+              else goTo('waiting-lobby');
+            } else {
+              setLoading(false);
+              goTo('waiting-lobby');
+            }
           }}>
             🍐 Enter Event
           </PrimaryBtn>
@@ -965,7 +1106,9 @@ export default function Home() {
       case 'event-timer': return (
         <div style={{ padding: '20px 20px' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#22c55e', color: '#fff', fontSize: '12px', fontWeight: 700, padding: '6px 14px', borderRadius: '999px', marginBottom: '10px' }}>
-            ✅ Equal Match Selected (14 Men = 14 Women)
+            {genderCounts.men > 0 || genderCounts.women > 0
+              ? `✅ ${genderCounts.men} Men · ${genderCounts.women} Women · ${registeredCount} Total`
+              : `✅ ${registeredCount} Attendees Registered`}
           </div>
           <p style={{ color: C.muted, fontSize: '14px', marginBottom: '18px' }}>You're here! But you're already late! Join in the next round.</p>
 
@@ -991,13 +1134,19 @@ export default function Home() {
           </div>
 
           <Card style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px' }}>Next match in</p>
-            <p style={{ fontSize: '52px', fontWeight: 900, color: C.pink }}>{formatTime(nextMatchTime)}</p>
-            <p style={{ fontSize: '12px', color: C.muted, marginTop: '4px' }}>Current Round: {EVENT.round} of {EVENT.totalRounds}</p>
+            <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '6px' }}>Current Round</p>
+            <p style={{ fontSize: '52px', fontWeight: 900, color: C.pink }}>{serverRound || '—'}</p>
+            <p style={{ fontSize: '12px', color: C.muted, marginTop: '4px' }}>of {EVENT.totalRounds} rounds</p>
           </Card>
 
-          <p style={{ textAlign: 'center', color: C.muted, fontSize: '14px', marginBottom: '16px' }}>⏳ Waiting for next round...</p>
-          <PrimaryBtn onClick={() => { setCurrentRound(1); if (eventId) fetchMyMatch(eventId, 1); goTo('pre-hunt'); }}>Join Next Round →</PrimaryBtn>
+          <p style={{ textAlign: 'center', color: C.muted, fontSize: '14px', marginBottom: '16px' }}>⏳ Waiting for host to advance the round...</p>
+          <PrimaryBtn onClick={async () => {
+            const status = await fetchEventStatus(eventId);
+            const round = status?.currentRound || serverRound || 1;
+            setCurrentRound(round); setServerRound(round);
+            if (eventId) fetchMyMatch(eventId, round);
+            goTo('pre-hunt');
+          }}>Join Current Round →</PrimaryBtn>
         </div>
       );
 
@@ -1005,7 +1154,7 @@ export default function Home() {
       case 'pre-hunt': return (
         <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', textAlign: 'center' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: C.pink, color: '#fff', fontSize: '13px', fontWeight: 800, padding: '6px 18px', borderRadius: '999px', marginBottom: '24px' }}>
-            Round {currentRound} of {EVENT.totalRounds}
+            Round {activeRound} of {EVENT.totalRounds}
           </div>
 
           {/* Partner preview — blurred avatar or waiting */}
@@ -1053,7 +1202,7 @@ export default function Home() {
           {/* Header */}
           <div style={{ textAlign: 'center', marginBottom: '16px' }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: C.pink, color: '#fff', fontSize: '13px', fontWeight: 800, padding: '6px 18px', borderRadius: '999px', marginBottom: '10px' }}>
-              Round {currentRound} of {EVENT.totalRounds}
+              Round {activeRound} of {EVENT.totalRounds}
             </div>
             <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text, marginBottom: '2px' }}>Find the Pear 🍐</h2>
             <p style={{ fontSize: '13px', color: C.muted }}>Find this person in the room!</p>
@@ -1096,7 +1245,7 @@ export default function Home() {
               {/* Action Buttons */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 {/* Skip */}
-                <button onClick={() => { const next = currentRound + 1; setCurrentRound(next); if (eventId) fetchMyMatch(eventId, next); goTo('pre-hunt'); }}
+                <button onClick={() => submitAction('pass')}
                   style={{ padding: '18px 12px', borderRadius: '20px', border: '2px solid rgba(0,0,0,0.12)', background: '#fff', color: C.muted, fontSize: '15px', cursor: 'pointer', fontWeight: 800, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '20px' }}>⏭</span> Skip
                 </button>
@@ -1173,7 +1322,13 @@ export default function Home() {
                 <button onClick={sendMessage} disabled={!chatConvId}
                   style={{ padding: '11px 16px', borderRadius: '14px', background: chatConvId ? C.pink : '#ddd', color: '#fff', border: 'none', fontSize: '18px', cursor: chatConvId ? 'pointer' : 'not-allowed' }}>➤</button>
               </div>
-              <button onClick={() => { const next = currentRound + 1; setCurrentRound(next); if (eventId) fetchMyMatch(eventId, next); setChatMatch(null); setChatConvId(null); setMessages([]); goTo('pre-hunt'); }}
+              <button onClick={() => {
+                const next = activeRound + 1;
+                setCurrentRound(next); setServerRound(next);
+                if (eventId) fetchMyMatch(eventId, next);
+                setChatMatch(null); setChatConvId(null); setMessages([]);
+                goTo('pre-hunt');
+              }}
                 style={{ width: '100%', padding: '13px', borderRadius: '14px', border: '2px solid rgba(0,0,0,0.1)', background: '#fff', color: C.text, fontSize: '14px', fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Next Round →
               </button>
@@ -1301,6 +1456,249 @@ export default function Home() {
         </div>
       );
 
+      // ── QR CHECK-IN ─────────────────────────────────────────
+      case 'qr-checkin': return (
+        <div style={{ padding: '28px 20px' }}>
+          <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text, textAlign: 'center', marginBottom: '6px' }}>
+            {isAdmin ? '📲 Event QR Code' : '📷 Check In'}
+          </h2>
+          <p style={{ color: C.muted, textAlign: 'center', fontSize: '14px', marginBottom: '28px' }}>
+            {isAdmin ? 'Show this QR code at the venue entrance' : 'Scan the QR code at the venue entrance to check in'}
+          </p>
+
+          {isAdmin && eventId ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+              <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', display: 'inline-block' }}>
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent('peard://event/' + eventId)}&size=220x220&margin=10`}
+                  alt="Event QR Code"
+                  style={{ width: '220px', height: '220px', display: 'block', borderRadius: '8px' }}
+                />
+              </div>
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px', padding: '14px 20px', textAlign: 'center', width: '100%' }}>
+                <p style={{ fontSize: '13px', fontWeight: 700, color: '#15803d' }}>Event ID</p>
+                <p style={{ fontSize: '12px', color: '#166534', fontFamily: 'monospace', wordBreak: 'break-all', marginTop: '4px' }}>{eventId}</p>
+              </div>
+              <p style={{ fontSize: '12px', color: C.muted, textAlign: 'center' }}>Attendees scan this to check in. Works offline too.</p>
+            </div>
+          ) : !isAdmin ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+              <div style={{ width: '260px', height: '260px', borderRadius: '20px', background: '#f9f9f9', border: `2px dashed ${C.pink}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '48px' }}>📷</span>
+                <p style={{ fontSize: '14px', fontWeight: 700, color: C.text, textAlign: 'center' }}>Camera scanner</p>
+                <p style={{ fontSize: '12px', color: C.muted, textAlign: 'center', padding: '0 20px' }}>Point your camera at the QR code displayed at the venue</p>
+              </div>
+              <p style={{ fontSize: '13px', color: C.muted, textAlign: 'center' }}>
+                Already checked in?{' '}
+                <button onClick={() => goTo('waiting-lobby')} style={{ color: C.pink, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px' }}>
+                  Go to Lobby →
+                </button>
+              </p>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <p style={{ color: C.muted }}>Join an event first to see the QR code.</p>
+            </div>
+          )}
+        </div>
+      );
+
+      // ── ADMIN PANEL ──────────────────────────────────────────
+      case 'admin-panel': {
+        const loadAdminEvents = async () => {
+          try {
+            const res = await fetch('/api/events', { headers: { Authorization: `Bearer ${user?.token}` } });
+            const data = await res.json();
+            if (data.events) setAdminEvents(data.events);
+          } catch {}
+        };
+
+        const createEvent = async () => {
+          if (!newEvent.title || !newEvent.date) return showMsg('Title and date are required', 'error');
+          try {
+            const res = await fetch('/api/events', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+              body: JSON.stringify({ title: newEvent.title, date: newEvent.date, startTime: newEvent.startTime, location_name: newEvent.locationName, location_address: newEvent.locationAddress, maxParticipants: newEvent.maxParticipants, numRounds: newEvent.numRounds }),
+            });
+            const data = await res.json();
+            if (data.success) { showMsg('Event created!', 'success'); loadAdminEvents(); setAdminTab('rounds'); }
+            else showMsg(data.error || 'Failed', 'error');
+          } catch {}
+        };
+
+        const loadAttendees = async (evId) => {
+          try {
+            const res = await fetch(`/api/events/${evId}/attendees`, { headers: { Authorization: `Bearer ${user?.token}` } });
+            const data = await res.json();
+            if (data.success) setAttendees(data);
+          } catch {}
+        };
+
+        const tabStyle = (t) => ({
+          padding: '8px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+          background: adminTab === t ? C.pink : 'rgba(0,0,0,0.06)', color: adminTab === t ? '#fff' : C.text, fontFamily: 'inherit',
+        });
+
+        return (
+          <div style={{ padding: '20px 20px 40px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+              <button onClick={() => goTo('event-ready')} style={{ background: 'none', border: 'none', fontSize: '22px', cursor: 'pointer' }}>←</button>
+              <h2 style={{ fontSize: '22px', fontWeight: 900, color: C.text }}>Host Panel</h2>
+              <div style={{ marginLeft: 'auto', background: '#fef2f4', color: C.pink, fontSize: '11px', fontWeight: 800, padding: '4px 10px', borderRadius: '999px' }}>ADMIN</div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              {[['event','Create Event'],['rounds','Rounds'],['attendees','Attendees'],['qr','QR Code']].map(([t, label]) => (
+                <button key={t} onClick={() => setAdminTab(t)} style={tabStyle(t)}>{label}</button>
+              ))}
+            </div>
+
+            {/* Create Event */}
+            {adminTab === 'event' && (
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>New Event</p>
+                <StdInput label="Event Title *" value={newEvent.title} onChange={v => setNewEvent(p => ({...p, title: v}))} placeholder="e.g. Peard Speed Dating Night" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <StdInput label="Date *" value={newEvent.date} onChange={v => setNewEvent(p => ({...p, date: v}))} placeholder="YYYY-MM-DD" type="date" />
+                  <StdInput label="Start Time" value={newEvent.startTime} onChange={v => setNewEvent(p => ({...p, startTime: v}))} placeholder="18:00" type="time" />
+                </div>
+                <StdInput label="Venue Name" value={newEvent.locationName} onChange={v => setNewEvent(p => ({...p, locationName: v}))} placeholder="Club, Restaurant, etc." />
+                <StdInput label="Venue Address" value={newEvent.locationAddress} onChange={v => setNewEvent(p => ({...p, locationAddress: v}))} placeholder="Full address" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: C.text, display: 'block', marginBottom: '6px' }}>Max People</label>
+                    <input type="number" value={newEvent.maxParticipants} onChange={e => setNewEvent(p => ({...p, maxParticipants: parseInt(e.target.value)}))} min={4} max={100}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: C.text, display: 'block', marginBottom: '6px' }}>Rounds</label>
+                    <input type="number" value={newEvent.numRounds} onChange={e => setNewEvent(p => ({...p, numRounds: parseInt(e.target.value)}))} min={1} max={20}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: 700, color: C.text, display: 'block', marginBottom: '6px' }}>Round (s)</label>
+                    <input type="number" value={newEvent.roundDuration} onChange={e => setNewEvent(p => ({...p, roundDuration: parseInt(e.target.value)}))} min={30} max={600}
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '2px solid rgba(0,0,0,0.1)', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+                  </div>
+                </div>
+                <PrimaryBtn onClick={createEvent} loading={loading}>Create Event</PrimaryBtn>
+              </div>
+            )}
+
+            {/* Round Controls */}
+            {adminTab === 'rounds' && (
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Round Controls</p>
+                {eventId ? (
+                  <>
+                    <Card style={{ textAlign: 'center', marginBottom: '14px' }}>
+                      <p style={{ fontSize: '11px', color: C.muted, fontWeight: 700, textTransform: 'uppercase', marginBottom: '4px' }}>Current Round</p>
+                      <p style={{ fontSize: '52px', fontWeight: 900, color: C.pink, lineHeight: 1.1 }}>{serverRound || 0}</p>
+                      <p style={{ fontSize: '12px', color: C.muted }}>of {EVENT.totalRounds} total rounds</p>
+                    </Card>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <PrimaryBtn onClick={startRounds}>Generate All Pairings</PrimaryBtn>
+                      <button onClick={advanceRound}
+                        style={{ width: '100%', padding: '16px', borderRadius: '16px', background: '#f0fdf4', color: '#16a34a', fontWeight: 800, fontSize: '15px', border: '2px solid #bbf7d0', cursor: 'pointer', fontFamily: 'inherit' }}>
+                        ▶ Advance to Next Round
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '30px 0', color: C.muted }}>
+                    <p>Join an event first to manage rounds.</p>
+                    <button onClick={() => goTo('event-ready')} style={{ marginTop: '12px', color: C.pink, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px' }}>Go to Events →</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Attendees */}
+            {adminTab === 'attendees' && (
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 800, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '14px' }}>Attendees</p>
+                {adminEvents.length > 0 && !attendees && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                    <p style={{ fontSize: '13px', color: C.muted }}>Select an event to view attendees:</p>
+                    {adminEvents.map(ev => (
+                      <button key={ev.id} onClick={() => loadAttendees(ev.id)}
+                        style={{ padding: '14px 16px', borderRadius: '14px', background: '#fff', border: '2px solid rgba(0,0,0,0.08)', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit' }}>
+                        <p style={{ fontWeight: 800, color: C.text, fontSize: '14px' }}>{ev.title}</p>
+                        <p style={{ fontSize: '12px', color: C.muted, marginTop: '2px' }}>{ev.registered} registered · {ev.status}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {attendees && (
+                  <div>
+                    <div style={{ display: 'flex', gap: '10px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                      {[
+                        { label: 'Total', val: attendees.summary.total, color: C.text },
+                        { label: 'Men', val: attendees.summary.men, color: '#4A90D9' },
+                        { label: 'Women', val: attendees.summary.women, color: C.pink },
+                        { label: 'Checked In', val: attendees.summary.checkedIn, color: '#22c55e' },
+                      ].map(s => (
+                        <div key={s.label} style={{ flex: 1, minWidth: '60px', background: '#fff', borderRadius: '12px', padding: '12px', textAlign: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+                          <p style={{ fontSize: '22px', fontWeight: 900, color: s.color }}>{s.val}</p>
+                          <p style={{ fontSize: '11px', color: C.muted, fontWeight: 700 }}>{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '50vh', overflowY: 'auto' }}>
+                      {attendees.attendees.map(a => (
+                        <div key={a.id} style={{ background: '#fff', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
+                          <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: a.gender === 'female' ? '#fef2f4' : '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>
+                            {a.gender === 'female' ? '♀️' : a.gender === 'male' ? '♂️' : '⚧️'}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontWeight: 700, color: C.text, fontSize: '14px' }}>{a.name}</p>
+                            <p style={{ fontSize: '11px', color: C.muted }}>{a.gender} · {a.phone}</p>
+                          </div>
+                          <span style={{ fontSize: '12px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px', background: a.checkedIn ? '#f0fdf4' : '#f9fafb', color: a.checkedIn ? '#16a34a' : '#6b7280' }}>
+                            {a.checkedIn ? '✓ In' : 'Pending'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={() => setAttendees(null)} style={{ marginTop: '14px', color: C.pink, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', width: '100%', textAlign: 'center' }}>
+                      ← Back to Event List
+                    </button>
+                  </div>
+                )}
+                {adminEvents.length === 0 && !attendees && (
+                  <p style={{ textAlign: 'center', color: C.muted, padding: '30px 0' }}>No events found. Create one first.</p>
+                )}
+              </div>
+            )}
+
+            {/* QR Display */}
+            {adminTab === 'qr' && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+                <p style={{ fontSize: '13px', color: C.muted, textAlign: 'center' }}>Display this QR code at the venue entrance</p>
+                {eventId ? (
+                  <>
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent('peard://event/' + eventId)}&size=240x240&margin=10`}
+                        alt="Event QR Code"
+                        style={{ width: '240px', height: '240px', display: 'block', borderRadius: '8px' }}
+                      />
+                    </div>
+                    <div style={{ background: '#fef2f4', borderRadius: '14px', padding: '12px 20px', textAlign: 'center', width: '100%' }}>
+                      <p style={{ fontSize: '12px', fontWeight: 700, color: C.pink }}>Scan with any camera to check in</p>
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ color: C.muted, padding: '30px 0' }}>Join an event first to generate a QR code.</p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       default: return null;
     }
   };
@@ -1313,10 +1711,10 @@ export default function Home() {
 
   const NAV_TABS = [
     { id: 'events',    icon: '📅', label: 'Events',   goto: 'event-ready' },
-    { id: 'location',  icon: '📍', label: 'Location', goto: 'event-ready' },
+    { id: 'checkin',   icon: '📷', label: 'Check-in', goto: 'qr-checkin' },
     { id: 'pears',     icon: '❤️', label: 'Pears',    goto: 'hunt' },
     { id: 'messages',  icon: '💬', label: 'Messages', goto: 'match-history' },
-    { id: 'profile',   icon: '👤', label: 'Profile',  goto: 'optional-profile' },
+    ...(isAdmin ? [{ id: 'admin', icon: '⚙️', label: 'Host', goto: 'admin-panel' }] : [{ id: 'profile', icon: '👤', label: 'Profile', goto: 'optional-profile' }]),
   ];
 
   const DEMO_ITEMS = [
@@ -1327,12 +1725,20 @@ export default function Home() {
 
   const AdminPanel = () => (
     <div style={{ marginTop: '12px', borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '12px' }}>
-      <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px' }}>Admin Actions</p>
-      <button onClick={() => { startRounds(); setShowDemoPanel(false); }}
+      <p style={{ fontSize: '10px', fontWeight: 800, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: '8px' }}>Host Actions</p>
+      <button onClick={() => { goTo('admin-panel'); setShowDemoPanel(false); }}
         style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: C.pink, color: '#fff', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', marginBottom: '6px' }}>
-        🚀 Start Rounds (Pair All Users)
+        ⚙️ Open Host Panel
       </button>
-      <button onClick={() => { if (eventId) fetchMyMatch(eventId, currentRound); setShowDemoPanel(false); }}
+      <button onClick={() => { startRounds(); setShowDemoPanel(false); }}
+        style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: '#fff', color: C.text, border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', marginBottom: '6px' }}>
+        🚀 Generate Pairings
+      </button>
+      <button onClick={() => { advanceRound(); setShowDemoPanel(false); }}
+        style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', marginBottom: '6px' }}>
+        ▶ Advance Round ({serverRound || 0} → {(serverRound || 0) + 1})
+      </button>
+      <button onClick={() => { if (eventId) fetchMyMatch(eventId, activeRound); setShowDemoPanel(false); }}
         style={{ display: 'block', width: '100%', padding: '10px', borderRadius: '10px', background: '#fff', color: C.text, border: '1px solid rgba(0,0,0,0.1)', cursor: 'pointer', fontSize: '13px', fontWeight: 700, fontFamily: 'inherit' }}>
         🔄 Refresh My Match
       </button>

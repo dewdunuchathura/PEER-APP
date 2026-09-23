@@ -14,15 +14,15 @@ async function getHandler(request) {
     const offset = parseInt(searchParams.get('offset') || '0');
 
     const result = await sql`
-      SELECT 
+      SELECT
         e.*,
         COUNT(DISTINCT er.id) as registered_count
       FROM events e
       LEFT JOIN event_registrations er ON e.id = er.event_id
       WHERE e.status IN ('scheduled', 'ongoing')
-        AND e.date >= CURRENT_DATE
+        AND (e.date + e.start_time) >= (NOW() - INTERVAL '3 hours')
       GROUP BY e.id
-      ORDER BY e.date ASC
+      ORDER BY e.date ASC, e.start_time ASC
       LIMIT ${limit} OFFSET ${offset}
     `;
 
