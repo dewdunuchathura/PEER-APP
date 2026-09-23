@@ -958,6 +958,7 @@ export default function Home() {
             <h2 style={{ fontSize: '26px', fontWeight: 900, color: C.text }}>Your Match</h2>
           </div>
 
+          {currentMatch === null && eventId && (() => { setTimeout(() => fetchMyMatch(eventId, currentRound), 5000); return null; })()}
           {currentMatch ? (
             <>
               <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: '24px' }}>
@@ -976,9 +977,9 @@ export default function Home() {
           ) : (
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
               <div style={{ fontSize: '52px', marginBottom: '16px' }}>⏳</div>
-              <p style={{ fontWeight: 700, color: C.text, marginBottom: '8px' }}>Waiting for rounds to start...</p>
-              <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>The organiser will start the event shortly</p>
-              <OutlineBtn onClick={() => eventId && fetchMyMatch(eventId, currentRound)}>Refresh</OutlineBtn>
+              <p style={{ fontWeight: 700, color: C.text, marginBottom: '8px' }}>Finding your match...</p>
+              <p style={{ fontSize: '13px', color: C.muted, marginBottom: '24px' }}>Auto-refreshing every 5 seconds</p>
+              <OutlineBtn onClick={() => eventId && fetchMyMatch(eventId, currentRound)}>Refresh Now</OutlineBtn>
             </div>
           )}
         </div>
